@@ -1,0 +1,6 @@
+.tests
+bin
+.exe
+.msi
+.nupkg
+Azure.Automation.Helper.nuspec

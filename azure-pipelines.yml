@@ -1,0 +1,94 @@
+trigger:
+  branches:
+    include:
+      - master
+  paths:
+    include:
+      - /Azure.Automation.Helper
+    exclude:
+      - /.gitignore
+      - /readme.md
+      - /.tests
+
+variables:
+  - name: moduleName
+    value: 'Azure.Automation.Helper'
+  - name: modulePath
+    value: '.\Azure.Automation.Helper'
+  - name: feedName
+    value: 'VigilantPowershellGallery'
+
+stages:
+  - stage: Build
+    jobs:
+      - job: Build
+        pool:
+          vmImage: 'vs2017-win2016'
+        steps:
+          - task: PowerShell@2
+            displayName: Pre-Build
+            inputs:
+              targetType: 'inline'
+              script: |
+                Get-PackageProvider -Name Nuget
+                #Install-PackageProvider -Name NuGet -Force -Verbose -Scope CurrentUser
+                Install-Module -Name Pester -Force -Verbose -Scope CurrentUser -SkipPublisherCheck
+                #Install-Module -Name newtonsoft.json -Force -Scope CurrentUser -SkipPublisherCheck
+                #Install-Module -Name AzureADPreview -Force -Scope CurrentUser
+              pwsh: true
+
+          - task: PowerShell@2
+            displayName: Build
+            inputs:
+              filePath: './build.ps1'
+              arguments: '-modulePath $(modulePath) -moduleName $(moduleName)'
+              pwsh: true
+
+          - task: NuGetCommand@2
+            displayName: Pack
+            inputs:
+              command: 'pack'
+              packagesToPack: '$(moduleName).nuspec'
+              versioningScheme: 'off'
+              toolPackage: false
+              basePath: './bin/release/$(moduleName)'
+              packDestination: $(Build.ArtifactStagingDirectory)
+
+
+          - task: PublishPipelineArtifact@1
+            displayName: Publish Artifact
+            inputs:
+              targetPath: '$(Build.ArtifactStagingDirectory)'
+              artifact: 'release'
+              publishLocation: 'pipeline'
+
+          
+
+  - stage: Release
+    jobs:
+      - deployment: 'Release'
+        displayName: 'Publish to Private Gallery'
+        pool:
+          vmImage: 'vs2017-win2016'
+        environment: 'production'
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: AzureFileCopy@4
+                  inputs:
+                    SourcePath: '$(Pipeline.Workspace)/**/*.nupkg'
+                    azureSubscription: 'otgintunesa'
+                    Destination: 'AzureBlob'
+                    storage: 'otgintune'
+                    ContainerName: 'azureautomationhelper'
+
+                - task: NuGetCommand@2
+                  displayName: Push
+                  inputs:
+                    command: 'push'
+                    packagesToPush: '$(Pipeline.Workspace)/**/*.nupkg;!$(Pipeline.Workspace)/**/*.symbols.nupkg'
+                    nuGetFeedType: 'internal'
+                    publishVstsFeed: $(feedName)
+
+                
